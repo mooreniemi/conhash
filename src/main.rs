@@ -66,7 +66,7 @@ fn main() {
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
 
-    // assign data to shards
+    // assign data to shards, sorted in, so stored sorted
     hashed_names.sort_by(|a,b| a.total_cmp(&b));
     for hashed_name in hashed_names {
         let mut assign_to: &ShardInfo = &shards_view.
@@ -84,10 +84,77 @@ fn main() {
             expect("key must be present");
         data.push(hashed_name);
     }
-    println!("{:#?}", shard_mapping);
+    println!("Finished sharding:\n{:#?}", shard_mapping);
 
     // goal: 15 shards -> 30 shards
     // can't assume uniform distribution for small nums
+    println!("Time to reshard!");
+
+    // add shards
+    for shard_no in 15..30 {
+        let shard_name = format!("shard_{}", shard_no);
+        let shard_hash = consistent_hash(calculate_hash(&shard_name));
+        let shard_info = ShardInfo {
+            shard_name: shard_name.clone(),
+            shard_key: shard_hash
+        };
+        // just for convenience
+        shards.insert(shard_name.clone(), shard_info.clone());
+        // the actual data holder
+        let data: Vec<f64> = Vec::new();
+        shard_mapping.insert(shard_info, data);
+    }
+
+    // updated to include the new empty shards
+    let shards_view = shard_mapping.clone();
+    // counter to see how many pieces of data move shards
+    let mut moves = 0;
+
+    // each shard must be checked for moves
+    for (origin_shard_info, hashed_names) in shards_view.iter() {
+        for hashed_name in hashed_names {
+            let mut assign_to: &ShardInfo = &shards_view.
+                first_key_value().
+                expect("shard_mapping must be populated").0;
+            for (shard_info, _data) in shards_view.iter() {
+                // as soon as you find next largest value
+                // correct shard is counter-clockwise (-1)
+                if shard_info.shard_key > *hashed_name {
+                    break;
+                }
+                assign_to = shard_info;
+            }
+            // don't move to your own shard unnecessarily
+            if assign_to != origin_shard_info {
+                moves += 1;
+
+                // copy the data to the new shard
+                let data = shard_mapping.get_mut(&assign_to).
+                    expect("key must be present");
+                data.push(*hashed_name);
+
+                // remove the data from the old shard
+                let leaving = origin_shard_info;
+                let data = shard_mapping.get_mut(&leaving).
+                    expect("key must be present");
+                // FIXME: this is awful, I know, but
+                // for this iteration simpler to leave
+                // the shard data as a Vec
+                let mut index_to_remove = 0;
+                for e in data.iter() {
+                    if e.total_cmp(&hashed_name) == Ordering::Equal {
+                        break;
+                    } else {
+                        index_to_remove += 1;
+                    }
+                }
+                data.remove(index_to_remove);
+            }
+        }
+    }
+
+    println!("Finished resharding:\n{:#?}", shard_mapping);
+    println!("Times data moved: {}", moves);
 }
 
 /// https://doc.rust-lang.org/std/hash/index.html
