@@ -39,7 +39,9 @@ impl PartialEq for ShardInfo {
 impl Eq for ShardInfo { }
 
 fn main() {
+    // convenience shard_name -> ShardInfo
     let mut shards = HashMap::new();
+    // shards sorted by shard_key
     let mut shard_mapping = BTreeMap::new();
 
     // set up data to shard
@@ -61,12 +63,16 @@ fn main() {
         shard_mapping.insert(shard_info, data);
     }
 
+    // immutable borrow to "view" the keys
+    let shards_view = shard_mapping.clone();
+
     // assign data to shards
     hashed_names.sort_by(|a,b| a.total_cmp(&b));
     for hashed_name in hashed_names {
-        println!("{:?}", hashed_name);
-        let mut assign_to: &ShardInfo = &shard_mapping.first_key_value().expect("shard_mapping must be populated").0;
-        for (shard_info, _data) in shard_mapping.iter() {
+        let mut assign_to: &ShardInfo = &shards_view.
+            first_key_value().
+            expect("shard_mapping must be populated").0;
+        for (shard_info, _data) in shards_view.iter() {
             // as soon as you find next largest value
             // correct shard is counter-clockwise (-1)
             if shard_info.shard_key > hashed_name {
@@ -74,13 +80,14 @@ fn main() {
             }
             assign_to = shard_info;
         }
-        println!("{:?}", assign_to);
-        //let data = shard_mapping.get_mut(&assign_to).expect("key must be present");
-        //data.push(hashed_name);
+        let data = shard_mapping.get_mut(&assign_to).
+            expect("key must be present");
+        data.push(hashed_name);
     }
+    println!("{:#?}", shard_mapping);
 
-    // goal: 5 shards -> 10 shards
-    // 20 names per shard -> 40 names per shard
+    // goal: 15 shards -> 30 shards
+    // can't assume uniform distribution for small nums
 }
 
 /// https://doc.rust-lang.org/std/hash/index.html
