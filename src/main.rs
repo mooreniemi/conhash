@@ -44,9 +44,12 @@ fn main() {
     // shards sorted by shard_key
     let mut shard_mapping = BTreeMap::new();
 
+    let num_keys = 100;
     // set up data to shard
-    let name_vec = fake::vec![String as Name(EN); 100];
-    let mut hashed_names: Vec<f64> = name_vec.iter().map(|name| consistent_hash(calculate_hash(name))).collect();
+    let name_vec = fake::vec![String as Name(EN); num_keys];
+    let mut hashed_names: Vec<f64> = name_vec.iter().
+        map(|name| consistent_hash(calculate_hash(name))).
+        collect();
 
     // set up shards and store
     for shard_no in 0..14 {
