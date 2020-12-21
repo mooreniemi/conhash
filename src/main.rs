@@ -6,6 +6,8 @@ use std::cmp::Ordering;
 use fake::faker::name::raw::*;
 use fake::locales::*;
 
+use rand::Rng;
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -39,6 +41,8 @@ impl PartialEq for ShardInfo {
 impl Eq for ShardInfo { }
 
 fn main() {
+    let mut rng = rand::thread_rng();
+
     // convenience shard_name -> ShardInfo
     let mut shards = HashMap::new();
     // shards sorted by shard_key
@@ -54,7 +58,8 @@ fn main() {
     // set up shards and store
     for shard_no in 0..14 {
         let shard_name = format!("shard_{}", shard_no);
-        let shard_hash = consistent_hash(calculate_hash(&shard_name));
+        let rnd_shard_num = rng.gen::<u64>();
+        let shard_hash = consistent_hash(rnd_shard_num);
         let shard_info = ShardInfo {
             shard_name: shard_name.clone(),
             shard_key: shard_hash
@@ -96,7 +101,8 @@ fn main() {
     // add shards
     for shard_no in 15..30 {
         let shard_name = format!("shard_{}", shard_no);
-        let shard_hash = consistent_hash(calculate_hash(&shard_name));
+        let rnd_shard_num = rng.gen::<u64>();
+        let shard_hash = consistent_hash(rnd_shard_num);
         let shard_info = ShardInfo {
             shard_name: shard_name.clone(),
             shard_key: shard_hash
