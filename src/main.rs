@@ -66,14 +66,24 @@ impl PartialEq for ShardInfo {
 impl Eq for ShardInfo {}
 
 fn main() {
+    env_logger::init();
+
     let mut rng = rand::thread_rng();
 
     // shards sorted by shard_key
     let mut shard_mapping = BTreeMap::new();
 
-    let max_shards = 5;
+    let min_shards = 4;
+    let max_shards = min_shards+1;
     let num_keys = 500;
     let num_labels = 10;
+
+    log::info!(
+        "Will turn 4 shards (with {} labels each) into {}, with {} keys total.",
+        num_labels,
+        max_shards,
+        num_keys
+    );
 
     // set up data to shard
     let name_vec = fake::vec![String as Name(EN); num_keys];
@@ -86,7 +96,7 @@ fn main() {
         .collect();
 
     // set up shards and store
-    for shard_no in 0..4 {
+    for shard_no in 0..min_shards {
         let shard_name = format!("shard_{}", shard_no);
 
         // per each shard, we want x labels for it
@@ -95,7 +105,7 @@ fn main() {
             .map(|_| rng.gen_range(0 as f64, 360 as f64))
             .collect();
 
-        println!("shard_labels {:?} for {:?}", shard_labels, shard_name);
+        log::debug!("shard_labels {:?} for {:?}", shard_labels, shard_name);
 
         // we set up interior mutability
         let data: Rc<RefCell<BTreeSet<Document>>> = Rc::new(RefCell::new(BTreeSet::new()));
@@ -134,9 +144,9 @@ fn main() {
             reference.insert(document);
         }
     }
-    println!("Finished sharding:\n{:#?}", shard_mapping);
+    log::debug!("Finished sharding:\n{:#?}", shard_mapping);
 
-    println!("Increasing the shards");
+    log::debug!("Increasing the shards");
     for shard_no in 4..max_shards {
         let shard_name = format!("shard_{}", shard_no);
 
@@ -145,7 +155,7 @@ fn main() {
             .map(|_| rng.gen_range(0 as f64, 360 as f64))
             .collect();
 
-        println!("shard_labels {:?} for {:?}", shard_labels, shard_name);
+        log::debug!("shard_labels {:?} for {:?}", shard_labels, shard_name);
 
         // we set up interior mutability
         let data: Rc<RefCell<BTreeSet<Document>>> = Rc::new(RefCell::new(BTreeSet::new()));
@@ -163,7 +173,7 @@ fn main() {
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
 
-    println!("Time to reshard!");
+    log::debug!("Time to reshard!");
 
     // FIXME: should find other way to dedup, this is silly
     let mut dedup = BTreeSet::new();
@@ -185,7 +195,7 @@ fn main() {
             }
             if assign_to.shard_name != origin_shard_info.shard_name {
                 if !dedup.contains(document) {
-                    println!(
+                    log::debug!(
                         "moving {:?} from {:?} to {:?}",
                         document.clone(),
                         origin_shard_info,
@@ -217,10 +227,10 @@ fn main() {
         }
     }
 
-    println!("Finished resharding:\n{:#?}", shard_mapping);
+    log::debug!("Finished resharding:\n{:#?}", shard_mapping);
 
     // NOTE: should this be per added shard?
-    println!(
+    log::info!(
         "Times data moved: {}, expected: {}.",
         moving.len(),
         num_keys / max_shards
