@@ -127,6 +127,7 @@ fn main() {
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
 
+    // assign document to shard based on nearest label below
     for document in documents {
         let mut assign_to: &ShardInfo = &shards_view
             .first_key_value()
@@ -151,7 +152,9 @@ fn main() {
     log::debug!("Finished sharding:\n{:#?}", shard_mapping);
 
     log::debug!("Increasing the shards");
-    for shard_no in 4..max_shards {
+
+    // create new empty shards
+    for shard_no in min_shards..max_shards {
         let shard_name = format!("shard_{}", shard_no);
 
         // per each shard, we want x labels for it
@@ -181,6 +184,7 @@ fn main() {
 
     // the "log" of all the docs that must move, keyed by id
     let mut moving = HashMap::new();
+
     // collecting all the moves into a "log" that could be read off
     for (origin_shard_info, documents) in shards_view.iter() {
         for document in documents.borrow().iter() {
@@ -196,6 +200,8 @@ fn main() {
                 }
                 candidate = shard_info;
             }
+            // FIXME: probably a better way to handle deduping
+            // add to move log if not already seen by another label
             if assign_to.shard_name != origin_shard_info.shard_name {
                 if !moving.contains_key(&document.uuid) {
                     log::debug!(
