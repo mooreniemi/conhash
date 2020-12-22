@@ -8,10 +8,35 @@ use fake::locales::*;
 
 use rand::Rng;
 
+// FIXME: replace with Arc and RwLock when threading
+use std::rc::Rc;
+use std::cell::RefCell;
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Debug, Clone, PartialEq)]
+struct Document {
+    pub conhash_id: f64,
+    pub content: String,
+}
+
+impl Ord for Document {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.conhash_id.total_cmp(&other.conhash_id)
+    }
+}
+
+// `PartialOrd` needs to be implemented as well.
+impl PartialOrd for Document {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for Document { }
 
 /// Shards sorted by their consistent hash shard_key
 #[derive(Clone, Debug)]
@@ -43,127 +68,146 @@ impl Eq for ShardInfo { }
 fn main() {
     let mut rng = rand::thread_rng();
 
-    // convenience shard_name -> ShardInfo
-    let mut shards = HashMap::new();
     // shards sorted by shard_key
     let mut shard_mapping = BTreeMap::new();
 
+    let max_shards = 10;
     let num_keys = 100;
+    let num_labels = 4;
+
     // set up data to shard
     let name_vec = fake::vec![String as Name(EN); num_keys];
-    let mut hashed_names: Vec<f64> = name_vec.iter().
-        map(|name| consistent_hash(calculate_hash(name))).
+    let documents: Vec<Document> = name_vec.iter().
+        map(|name| Document { conhash_id: consistent_hash(calculate_hash(name)), content: name.to_string() }).
         collect();
 
     // set up shards and store
-    for shard_no in 0..14 {
+    for shard_no in 0..4 {
         let shard_name = format!("shard_{}", shard_no);
-        let rnd_shard_num = rng.gen::<u64>();
-        let shard_hash = consistent_hash(rnd_shard_num);
-        let shard_info = ShardInfo {
-            shard_name: shard_name.clone(),
-            shard_key: shard_hash
-        };
-        // just for convenience
-        shards.insert(shard_name.clone(), shard_info.clone());
-        // the actual data holder
-        let data: Vec<f64> = Vec::new();
-        shard_mapping.insert(shard_info, data);
+
+        // per each shard, we want x labels for it
+        let shard_labels: Vec<f64> = (0..num_labels).
+            map(|_| rng.gen_range(0 as f64, 360 as f64)).
+            collect();
+
+        // we set up interior mutability
+        let data: Rc<RefCell<BTreeSet<Document>>> = Rc::new(
+            RefCell::new(BTreeSet::new()));
+
+        for shard_hash in shard_labels {
+            let shard_info = ShardInfo {
+                shard_name: shard_name.clone(),
+                shard_key: shard_hash
+            };
+            // the actual data holder
+            shard_mapping.insert(shard_info, Rc::clone(&data));
+        }
     }
 
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
 
-    // assign data to shards, sorted in, so stored sorted
-    hashed_names.sort_by(|a,b| a.total_cmp(&b));
-    for hashed_name in hashed_names {
+    for document in documents {
         let mut assign_to: &ShardInfo = &shards_view.
             first_key_value().
             expect("shard_mapping must be populated").0;
         for (shard_info, _data) in shards_view.iter() {
             // as soon as you find next largest value
             // correct shard is counter-clockwise (-1)
-            if shard_info.shard_key > hashed_name {
+            if shard_info.shard_key > document.conhash_id {
                 break;
             }
             assign_to = shard_info;
         }
-        let data = shard_mapping.get_mut(&assign_to).
-            expect("key must be present");
-        data.push(hashed_name);
+        let data = shard_mapping.get(&assign_to).
+            expect("shard_key must be present");
+        {
+            let mut reference = data.borrow_mut();
+            reference.insert(document);
+        }
     }
     println!("Finished sharding:\n{:#?}", shard_mapping);
 
-    // goal: 15 shards -> 30 shards
-    // can't assume uniform distribution for small nums
-    println!("Time to reshard!");
-
-    // add shards
-    for shard_no in 15..30 {
+    println!("Increasing the shards");
+    for shard_no in 5..max_shards {
         let shard_name = format!("shard_{}", shard_no);
-        let rnd_shard_num = rng.gen::<u64>();
-        let shard_hash = consistent_hash(rnd_shard_num);
-        let shard_info = ShardInfo {
-            shard_name: shard_name.clone(),
-            shard_key: shard_hash
-        };
-        // just for convenience
-        shards.insert(shard_name.clone(), shard_info.clone());
-        // the actual data holder
-        let data: Vec<f64> = Vec::new();
-        shard_mapping.insert(shard_info, data);
+
+        // per each shard, we want x labels for it
+        let shard_labels: Vec<f64> = (0..num_labels).
+            map(|_| rng.gen_range(0 as f64, 360 as f64)).
+            collect();
+
+        // we set up interior mutability
+        let data: Rc<RefCell<BTreeSet<Document>>> = Rc::new(
+            RefCell::new(BTreeSet::new()));
+
+        for shard_hash in shard_labels {
+            let shard_info = ShardInfo {
+                shard_name: shard_name.clone(),
+                shard_key: shard_hash
+            };
+            // the actual data holder
+            shard_mapping.insert(shard_info, Rc::clone(&data));
+        }
     }
 
-    // updated to include the new empty shards
+    // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
-    // counter to see how many pieces of data move shards
-    let mut moves = 0;
 
-    // each shard must be checked for moves
-    for (origin_shard_info, hashed_names) in shards_view.iter() {
-        for hashed_name in hashed_names {
-            let mut assign_to: &ShardInfo = &shards_view.
-                first_key_value().
-                expect("shard_mapping must be populated").0;
+    println!("Time to reshard!");
+    let mut moving = Vec::new();
+    for (origin_shard_info, documents) in shards_view.iter() {
+        for document in documents.borrow().iter() {
+            let mut assign_to: &ShardInfo = origin_shard_info;
+            let mut candidate: &ShardInfo = origin_shard_info;
             for (shard_info, _data) in shards_view.iter() {
                 // as soon as you find next largest value
                 // correct shard is counter-clockwise (-1)
-                if shard_info.shard_key > *hashed_name {
+                if shard_info.shard_key > document.conhash_id {
+                    assign_to = candidate;
                     break;
                 }
-                assign_to = shard_info;
+                candidate = shard_info;
             }
-            // don't move to your own shard unnecessarily
-            if assign_to != origin_shard_info {
-                moves += 1;
+            if assign_to.shard_name != origin_shard_info.shard_name {
+                println!("moving {:?} from {:?} to {:?}",
+                    document.clone(),
+                    origin_shard_info,
+                    assign_to);
+                moving.push(
+                    (origin_shard_info,
+                     assign_to,
+                     document.clone())
+                );
+            }
+        }
+    }
 
-                // copy the data to the new shard
-                let data = shard_mapping.get_mut(&assign_to).
-                    expect("key must be present");
-                data.push(*hashed_name);
-
-                // remove the data from the old shard
-                let leaving = origin_shard_info;
-                let data = shard_mapping.get_mut(&leaving).
-                    expect("key must be present");
-                // FIXME: this is awful, I know, but
-                // for this iteration simpler to leave
-                // the shard data as a Vec
-                let mut index_to_remove = 0;
-                for e in data.iter() {
-                    if e.total_cmp(&hashed_name) == Ordering::Equal {
-                        break;
-                    } else {
-                        index_to_remove += 1;
-                    }
+    for (from, to, e) in moving.clone() {
+        let data = shard_mapping.get(&to).
+            expect("shard_key must be present");
+        {
+            let mut reference = data.borrow_mut();
+            reference.insert(e.clone());
+        }
+        let data = shard_mapping.get(&from).
+            expect("shard_key must be present");
+        {
+            let mut reference = data.borrow_mut();
+            for ee in reference.clone().iter() {
+                if e == *ee {
+                    reference.remove(&*ee);
+                    break;
                 }
-                data.remove(index_to_remove);
             }
         }
     }
 
     println!("Finished resharding:\n{:#?}", shard_mapping);
-    println!("Times data moved: {}", moves);
+
+    // according to the estimate
+    println!("Times data moved: {}. Expected: {}",
+        moving.len(), num_keys/max_shards);
 }
 
 /// https://doc.rust-lang.org/std/hash/index.html
