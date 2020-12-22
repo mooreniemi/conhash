@@ -77,11 +77,12 @@ fn main() {
 
     let min_shards = 4;
     let max_shards = min_shards + 1;
-    let num_keys = 500;
+    let num_keys = 1777;
     let num_labels = 10;
 
     log::info!(
-        "Will turn 4 shards (with {} labels each) into {}, with {} keys total.",
+        "Will turn {} shards (with {} labels each) into {}, with {} keys total.",
+        min_shards,
         num_labels,
         max_shards,
         num_keys
