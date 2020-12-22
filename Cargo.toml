@@ -11,3 +11,4 @@ env_logger = "0.8.2"
 fake = { version = "2.2", features=['derive']}
 log = "0.4.11"
 rand = "0.7.3"
+uuid = { version = "0.8.1", features=['v4']}

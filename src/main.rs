@@ -8,6 +8,7 @@ use fake::faker::name::raw::*;
 use fake::locales::*;
 
 use rand::Rng;
+use uuid::Uuid;
 
 // FIXME: replace with Arc and RwLock when threading
 use std::cell::RefCell;
@@ -16,12 +17,13 @@ use std::rc::Rc;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Debug, Clone, PartialEq)]
 struct Document {
     pub conhash_id: f64,
     pub content: String,
+    pub uuid: Uuid,
 }
 
 impl Ord for Document {
@@ -74,7 +76,7 @@ fn main() {
     let mut shard_mapping = BTreeMap::new();
 
     let min_shards = 4;
-    let max_shards = min_shards+1;
+    let max_shards = min_shards + 1;
     let num_keys = 500;
     let num_labels = 10;
 
@@ -92,6 +94,7 @@ fn main() {
         .map(|name| Document {
             conhash_id: consistent_hash(calculate_hash(name)),
             content: name.to_string(),
+            uuid: Uuid::new_v4(),
         })
         .collect();
 
@@ -170,15 +173,14 @@ fn main() {
         }
     }
 
+    log::debug!("Time to reshard!");
+
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
 
-    log::debug!("Time to reshard!");
-
-    // FIXME: should find other way to dedup, this is silly
-    let mut dedup = BTreeSet::new();
+    // the "log" of all the docs that must move, keyed by id
+    let mut moving = HashMap::new();
     // collecting all the moves into a "log" that could be read off
-    let mut moving = Vec::new();
     for (origin_shard_info, documents) in shards_view.iter() {
         for document in documents.borrow().iter() {
             // NOTE: not just a repeat of above code
@@ -194,22 +196,24 @@ fn main() {
                 candidate = shard_info;
             }
             if assign_to.shard_name != origin_shard_info.shard_name {
-                if !dedup.contains(document) {
+                if !moving.contains_key(&document.uuid) {
                     log::debug!(
                         "moving {:?} from {:?} to {:?}",
                         document.clone(),
                         origin_shard_info,
                         assign_to
                     );
-                    dedup.insert(document.clone());
-                    moving.push((origin_shard_info, assign_to, document.clone()));
+                    moving.insert(
+                        document.uuid,
+                        (origin_shard_info, assign_to, document.clone()),
+                    );
                 }
             }
         }
     }
 
     // moving the data, adding first, then removing
-    for (from, to, e) in moving.clone() {
+    for (from, to, e) in moving.values().clone() {
         let data = shard_mapping.get(&to).expect("shard_key must be present");
         {
             let mut reference = data.borrow_mut();
@@ -219,7 +223,7 @@ fn main() {
         {
             let mut reference = data.borrow_mut();
             for ee in reference.clone().iter() {
-                if e == *ee {
+                if *e == *ee {
                     reference.remove(&*ee);
                     break;
                 }
