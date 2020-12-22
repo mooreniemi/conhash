@@ -59,7 +59,7 @@ impl PartialOrd for ShardInfo {
 
 impl PartialEq for ShardInfo {
     fn eq(&self, other: &Self) -> bool {
-        self.shard_key == other.shard_key
+        self.shard_key.total_cmp(&other.shard_key) == Ordering::Equal
     }
 }
 
@@ -71,24 +71,29 @@ fn main() {
     // shards sorted by shard_key
     let mut shard_mapping = BTreeMap::new();
 
-    let max_shards = 10;
-    let num_keys = 100;
-    let num_labels = 4;
+    let max_shards = 5;
+    let num_keys = 500;
+    let num_labels = 10;
 
     // set up data to shard
     let name_vec = fake::vec![String as Name(EN); num_keys];
     let documents: Vec<Document> = name_vec.iter().
-        map(|name| Document { conhash_id: consistent_hash(calculate_hash(name)), content: name.to_string() }).
-        collect();
+        map(|name| Document {
+            conhash_id: consistent_hash(calculate_hash(name)),
+            content: name.to_string()
+        }).collect();
 
     // set up shards and store
     for shard_no in 0..4 {
         let shard_name = format!("shard_{}", shard_no);
 
         // per each shard, we want x labels for it
+        // FIXME: assuming chance of collision is low here!
         let shard_labels: Vec<f64> = (0..num_labels).
             map(|_| rng.gen_range(0 as f64, 360 as f64)).
             collect();
+
+        println!("shard_labels {:?} for {:?}", shard_labels, shard_name);
 
         // we set up interior mutability
         let data: Rc<RefCell<BTreeSet<Document>>> = Rc::new(
@@ -129,13 +134,15 @@ fn main() {
     println!("Finished sharding:\n{:#?}", shard_mapping);
 
     println!("Increasing the shards");
-    for shard_no in 5..max_shards {
+    for shard_no in 4..max_shards {
         let shard_name = format!("shard_{}", shard_no);
 
         // per each shard, we want x labels for it
         let shard_labels: Vec<f64> = (0..num_labels).
             map(|_| rng.gen_range(0 as f64, 360 as f64)).
             collect();
+
+        println!("shard_labels {:?} for {:?}", shard_labels, shard_name);
 
         // we set up interior mutability
         let data: Rc<RefCell<BTreeSet<Document>>> = Rc::new(
@@ -155,9 +162,13 @@ fn main() {
     let shards_view = shard_mapping.clone();
 
     println!("Time to reshard!");
+
+    // FIXME: should find other way to dedup, this is silly
+    let mut dedup = BTreeSet::new();
     let mut moving = Vec::new();
     for (origin_shard_info, documents) in shards_view.iter() {
         for document in documents.borrow().iter() {
+            // NOTE: not just a repeat of above code
             let mut assign_to: &ShardInfo = origin_shard_info;
             let mut candidate: &ShardInfo = origin_shard_info;
             for (shard_info, _data) in shards_view.iter() {
@@ -170,15 +181,18 @@ fn main() {
                 candidate = shard_info;
             }
             if assign_to.shard_name != origin_shard_info.shard_name {
-                println!("moving {:?} from {:?} to {:?}",
-                    document.clone(),
-                    origin_shard_info,
-                    assign_to);
-                moving.push(
-                    (origin_shard_info,
-                     assign_to,
-                     document.clone())
-                );
+                if !dedup.contains(document) {
+                    println!("moving {:?} from {:?} to {:?}",
+                        document.clone(),
+                        origin_shard_info,
+                        assign_to);
+                    dedup.insert(document.clone());
+                    moving.push((
+                            origin_shard_info,
+                            assign_to,
+                            document.clone()
+                    ));
+                }
             }
         }
     }
@@ -205,8 +219,8 @@ fn main() {
 
     println!("Finished resharding:\n{:#?}", shard_mapping);
 
-    // according to the estimate
-    println!("Times data moved: {}. Expected: {}",
+    // NOTE: should this be per added shard?
+    println!("Times data moved: {}, expected: {}.",
         moving.len(), num_keys/max_shards);
 }
 
