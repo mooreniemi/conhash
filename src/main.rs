@@ -101,7 +101,7 @@ fn main() {
             content: name.to_string(),
             uuid: Uuid::new_v4(),
         })
-        .collect();
+    .collect();
 
     // set up shards and store
     for shard_no in 0..min_shards {
@@ -130,6 +130,7 @@ fn main() {
 
     let duration = start.elapsed();
     log::info!("Empty set up took is: {:?}", duration);
+    let start = Instant::now();
 
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
@@ -195,20 +196,35 @@ fn main() {
     // the "log" of all the docs that must move, keyed by id
     let mut moving = HashMap::new();
 
+    // FIXME: beyond tiny data, bad; doing (shards*labels)*docs
     // collecting all the moves into a "log" that could be read off
     for (origin_shard_info, documents) in shards_view.iter() {
         for document in documents.borrow().iter() {
             // NOTE: not just a repeat of above code
             let mut assign_to: &ShardInfo = origin_shard_info;
-            let mut candidate: &ShardInfo = origin_shard_info;
-            for (shard_info, _data) in shards_view.iter() {
-                // as soon as you find next largest value
-                // correct shard is counter-clockwise (-1)
-                if shard_info.shard_key > document.conhash_id {
-                    assign_to = candidate;
+
+            let mut first = 0;
+            let mut last = shards_view.len();
+
+            let shard_keys = shards_view.keys().collect::<Vec<_>>();
+            while first < last {
+                let pivot = (first+last)/2;
+                if document.conhash_id == shard_keys[pivot].shard_key {
                     break;
+                } else if pivot > 0 && document.conhash_id < shard_keys[pivot].shard_key {
+                    if  document.conhash_id > shard_keys[pivot - 1].shard_key {
+                        assign_to = shard_keys[pivot - 1];
+                        break;
+                    }
+                    last = pivot - 1;
+                } else {
+                    // if (mid < n - 1 and target < arr[mid + 1]):
+                    if pivot < shards_view.len() - 1 && document.conhash_id < shard_keys[pivot + 1].shard_key {
+                        break;
+                    }
+
+                    first = pivot + 1;
                 }
-                candidate = shard_info;
             }
             // FIXME: probably a better way to handle deduping
             // add to move log if not already seen by another label
@@ -231,6 +247,7 @@ fn main() {
 
     let duration = start.elapsed();
     log::info!("Calculating movers took: {:?}", duration);
+    let start = Instant::now();
 
     // moving the data, adding first, then removing
     for (from, to, e) in moving.values().clone() {
