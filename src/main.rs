@@ -193,6 +193,7 @@ fn main() {
 
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
+    let shard_keys = shards_view.keys().collect::<Vec<_>>();
 
     // the "log" of all the docs that must move, keyed by id
     let mut moving = HashMap::new();
@@ -207,7 +208,6 @@ fn main() {
             let mut first = 0;
             let mut last = shards_view.len();
 
-            let shard_keys = shards_view.keys().collect::<Vec<_>>();
             while first < last {
                 let pivot = (first+last)/2;
                 if document.conhash_id == shard_keys[pivot].shard_key {
