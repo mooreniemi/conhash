@@ -161,6 +161,7 @@ fn main() {
 
     let duration = start.elapsed();
     log::info!("Initial sharding took: {:?}", duration);
+    let start = Instant::now();
 
     log::debug!("Increasing the shards");
 
