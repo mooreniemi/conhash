@@ -193,6 +193,7 @@ fn main() {
 
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
+    let shard_keys = shards_view.keys().collect::<Vec<_>>();
 
     // the "log" of all the docs that must move, keyed by id
     let mut moving = HashMap::new();
@@ -202,15 +203,24 @@ fn main() {
         for document in documents.borrow().iter() {
             // NOTE: not just a repeat of above code
             let mut assign_to: &ShardInfo = origin_shard_info;
-            let mut candidate: &ShardInfo = origin_shard_info;
-            for (shard_info, _data) in shards_view.iter() {
-                // as soon as you find next largest value
-                // correct shard is counter-clockwise (-1)
-                if shard_info.shard_key > document.conhash_id {
-                    assign_to = candidate;
+
+            let mut first = 0;
+            let mut last = shards_view.len();
+
+            while first < last {
+                let pivot = (first + last) / 2;
+                if document.conhash_id == shard_keys[pivot].shard_key {
                     break;
+                } else if pivot > 0 && document.conhash_id < shard_keys[pivot].shard_key {
+                    // NOTE: we just want closest "under" so no matching branch
+                    if document.conhash_id > shard_keys[pivot - 1].shard_key {
+                        assign_to = shard_keys[pivot - 1];
+                        break;
+                    }
+                    last = pivot - 1;
+                } else {
+                    first = pivot + 1;
                 }
-                candidate = shard_info;
             }
             // FIXME: probably a better way to handle deduping
             // add to move log if not already seen by another label
