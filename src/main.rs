@@ -19,6 +19,8 @@ use std::hash::{Hash, Hasher};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use std::time::Instant;
+
 #[derive(Debug, Clone, PartialEq)]
 struct Document {
     pub conhash_id: f64,
@@ -75,9 +77,9 @@ fn main() {
     // shards sorted by shard_key
     let mut shard_mapping = BTreeMap::new();
 
-    let min_shards = 4;
+    let min_shards = 49;
     let max_shards = min_shards + 1;
-    let num_keys = 1777;
+    let num_keys = 17777;
     let num_labels = 10;
 
     log::info!(
@@ -87,6 +89,8 @@ fn main() {
         max_shards,
         num_keys
     );
+
+    let start = Instant::now();
 
     // set up data to shard
     let name_vec = fake::vec![String as Name(EN); num_keys];
@@ -124,6 +128,9 @@ fn main() {
         }
     }
 
+    let duration = start.elapsed();
+    log::info!("Empty set up took is: {:?}", duration);
+
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
 
@@ -150,6 +157,9 @@ fn main() {
         }
     }
     log::debug!("Finished sharding:\n{:#?}", shard_mapping);
+
+    let duration = start.elapsed();
+    log::info!("Initial sharding took: {:?}", duration);
 
     log::debug!("Increasing the shards");
 
@@ -219,6 +229,9 @@ fn main() {
         }
     }
 
+    let duration = start.elapsed();
+    log::info!("Calculating movers took: {:?}", duration);
+
     // moving the data, adding first, then removing
     for (from, to, e) in moving.values().clone() {
         let data = shard_mapping.get(&to).expect("shard_key must be present");
@@ -237,6 +250,9 @@ fn main() {
             }
         }
     }
+
+    let duration = start.elapsed();
+    log::info!("Moving to new shards took: {:?}", duration);
 
     log::debug!("Finished resharding:\n{:#?}", shard_mapping);
 
