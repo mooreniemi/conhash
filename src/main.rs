@@ -130,6 +130,7 @@ fn main() {
 
     let duration = start.elapsed();
     log::info!("Empty set up took is: {:?}", duration);
+    let start = Instant::now();
 
     // immutable borrow to "view" the keys
     let shards_view = shard_mapping.clone();
@@ -160,6 +161,7 @@ fn main() {
 
     let duration = start.elapsed();
     log::info!("Initial sharding took: {:?}", duration);
+    let start = Instant::now();
 
     log::debug!("Increasing the shards");
 
@@ -231,6 +233,7 @@ fn main() {
 
     let duration = start.elapsed();
     log::info!("Calculating movers took: {:?}", duration);
+    let start = Instant::now();
 
     // moving the data, adding first, then removing
     for (from, to, e) in moving.values().clone() {
